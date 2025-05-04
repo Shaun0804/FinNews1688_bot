@@ -2,10 +2,9 @@ import logging
 import requests
 from bs4 import BeautifulSoup
 import openai
-import telegram
-from telegram import Update
-from telegram.ext import CommandHandler, Dispatcher
 from flask import Flask, request
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes
 
 # === 設定區 ===
 BOT_TOKEN = "7915485999:AAHSYzBi1-Hh8PRvRRhbmnuafsey8BdNS8o"
@@ -13,12 +12,12 @@ WEBHOOK_URL = "https://finnews1688-bot.onrender.com"  # Render 會自動給你
 openai.api_key = "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"
 # ===========
 
-# 建立 Flask App
 app = Flask(__name__)
-bot = telegram.Bot(token=BOT_TOKEN)
-dispatcher = Dispatcher(bot=bot, update_queue=None, workers=0)
 
-# === 指令功能 ===
+# 建立 Telegram Application（代替 Dispatcher）
+application = Application.builder().token(BOT_TOKEN).build()
+
+# === 抓取新聞 ===
 def fetch_udn_news():
     url = "https://money.udn.com/rank/newest/1001"
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -32,6 +31,7 @@ def fetch_udn_news():
         articles.append((title, link))
     return articles
 
+# === GPT 摘要 ===
 def summarize(title, url):
     prompt = f"""請針對這則新聞進行摘要與觀點分析：
 標題：{title}
@@ -46,29 +46,29 @@ def summarize(title, url):
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
-        return f"❗️發生錯誤：{e}"
+        return f"❗️產生摘要時出錯：{e}"
 
-def handle_news(update: Update, context):
+# === /news 指令處理器 ===
+async def news(update: Update, context: ContextTypes.DEFAULT_TYPE):
     articles = fetch_udn_news()
     for title, link in articles:
         summary = summarize(title, link)
-        update.message.reply_text(f"📰 {title}\n🔗 {link}\n\n{summary}")
+        await update.message.reply_text(f"📰 {title}\n🔗 {link}\n\n{summary}")
 
-# === 加入指令處理器 ===
-dispatcher.add_handler(CommandHandler("news", handle_news))
+application.add_handler(CommandHandler("news", news))
 
 # === Webhook 路由 ===
 @app.route(f"/{BOT_TOKEN}", methods=["POST"])
-def webhook():
-    update = telegram.Update.de_json(request.get_json(force=True), bot)
-    dispatcher.process_update(update)
+async def webhook():
+    data = request.get_json(force=True)
+    await application.update_queue.put(Update.de_json(data, application.bot))
     return "ok"
 
-# === 啟用 Webhook ===
+# === 初次啟動時設定 Webhook ===
 @app.before_first_request
-def setup():
-    bot.delete_webhook()  # 確保乾淨狀態
-    bot.set_webhook(f"{WEBHOOK_URL}/{BOT_TOKEN}")
+def init_webhook():
+    application.bot.delete_webhook()
+    application.bot.set_webhook(url=f"{WEBHOOK_URL}/{BOT_TOKEN}")
 
 # === 啟動 Flask App ===
 if __name__ == "__main__":
