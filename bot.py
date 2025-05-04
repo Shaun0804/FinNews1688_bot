@@ -15,7 +15,7 @@ import openai
 # ========= 環境變數設定 =========
 BOT_TOKEN    = os.getenv("BOT_TOKEN")    or "你的_bot_token"
 WEBHOOK_URL  = os.getenv("WEBHOOK_URL")  or "https://yourdomain.com"
-TEST_CHAT_ID = int(os.getenv("TEST_CHAT_ID","123456789"))
+TEST_CHAT_ID = int(os.getenv("TEST_CHAT_ID", "123456789"))
 
 openai.api_key = os.getenv("OPENAI_API_KEY") or "你的_openai_api_key"
 RSS_URL = "https://money.udn.com/rssfeed/news/6215/4097878"
@@ -38,8 +38,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def news(update: Update, context: ContextTypes.DEFAULT_TYPE):
     feed = feedparser.parse(RSS_URL)
     if not feed.entries:
-        await context.bot.send_message(chat_id=update.effective_chat.id,
-                                       text="目前沒有最新的新聞。")
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="目前沒有最新的新聞。"
+        )
         return
 
     entry = feed.entries[0]
@@ -49,6 +51,7 @@ async def news(update: Update, context: ContextTypes.DEFAULT_TYPE):
         published = datetime(*entry.published_parsed[:6])
     except Exception:
         published = datetime.now()
+
     summary = await get_news_summary(entry.summary)
 
     await context.bot.send_message(
@@ -93,6 +96,7 @@ async def send_daily_news():
         published = datetime(*entry.published_parsed[:6])
     except Exception:
         published = datetime.now()
+
     summary = await get_news_summary(entry.summary)
 
     try:
@@ -111,16 +115,15 @@ async def send_daily_news():
 # ========= Webhook Endpoint =========
 @app.route(f'/{BOT_TOKEN}', methods=['POST'])
 def webhook():
-    """接收 Telegram Webhook，並把更新推到背景的 asyncio 迴圈裡處理"""
+    """接收 Telegram Webhook 並提交到背景事件迴圈處理"""
     data = request.get_json(force=True)
     update = Update.de_json(data, application.bot)
-    # 將協程提交到 bot_loop
+
     future = asyncio.run_coroutine_threadsafe(
         application.process_update(update),
         bot_loop
     )
     try:
-        # 等最長 10 秒看有無錯
         future.result(timeout=10)
     except Exception as e:
         logger.error(f"Webhook 處理失敗: {e}")
@@ -131,20 +134,20 @@ def index():
     return "FinNews Bot is running."
 
 # ========= 啟動 & 事件迴圈 =========
-def start_bot_loop(loop: asyncio.AbstractEventLoop):
-    asyncio.set_event_loop(loop)
-    loop.run_forever()
-
 async def init_app():
-    # 註冊命令
+    # 1. 註冊命令
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("news", news))
 
-    # 刪除舊 Webhook、設置新 Webhook
+    # 2. 初始化並啟動 Application
+    await application.initialize()
+    await application.start()
+
+    # 3. 設定 Webhook
     await application.bot.delete_webhook()
     await application.bot.set_webhook(url=f"{WEBHOOK_URL}/{BOT_TOKEN}")
 
-    # 啟動定時任務
+    # 4. 啟動排程
     scheduler = AsyncIOScheduler()
     scheduler.add_job(
         lambda: asyncio.create_task(send_daily_news()),
@@ -158,13 +161,17 @@ async def init_app():
     )
     scheduler.start()
 
-if __name__ == "__main__":
-    # 在這裡建立並啟動背景的 asyncio 事件迴圈
-    bot_loop = asyncio.new_event_loop()
-    bot_loop.run_until_complete(init_app())
+def start_bot_loop(loop: asyncio.AbstractEventLoop):
+    asyncio.set_event_loop(loop)
+    loop.run_forever()
 
-    thread = threading.Thread(target=start_bot_loop, args=(bot_loop,), daemon=True)
-    thread.start()
+if __name__ == "__main__":
+    # 建立專屬的背景事件迴圈
+    bot_loop = asyncio.new_event_loop()
+    # 在該迴圈中執行初始化
+    bot_loop.run_until_complete(init_app())
+    # 啟動事件迴圈（daemon 執行緒）
+    threading.Thread(target=start_bot_loop, args=(bot_loop,), daemon=True).start()
 
     # 啟動 Flask
     port = int(os.getenv("PORT", 10000))
