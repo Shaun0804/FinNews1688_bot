@@ -73,11 +73,12 @@ async def setup_webhook():
     await application.bot.set_webhook(url=f"{WEBHOOK_URL}/{BOT_TOKEN}")  # 加上 token！
 
 # Webhook 接收
-@app.route(f"/{BOT_TOKEN}", methods=["POST"])
+@app.route(f'/{BOT_TOKEN}', methods=['POST'])
 def telegram_webhook():
     update = Update.de_json(request.get_json(force=True), application.bot)
-    await application.process_update(update)
-    return "ok"
+    # 用 asyncio.run() 來運行非同步處理
+    asyncio.run(application.process_update(update))
+    return 'ok'
 
 # 首頁 route（避免 404）
 @app.route("/", methods=["GET"])
