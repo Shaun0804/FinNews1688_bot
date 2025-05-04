@@ -9,7 +9,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 # === 設定區 ===
 BOT_TOKEN = "7915485999:AAHSYzBi1-Hh8PRvRRhbmnuafsey8BdNS8o"
 WEBHOOK_URL = "https://finnews1688-bot.onrender.com"  # Render 會自動給你
-openai.api_key = "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"
+openai.api_key = "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"
 # ===========
 
 app = Flask(__name__)
