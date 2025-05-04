@@ -5,11 +5,18 @@ import openai
 from flask import Flask, request
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
-
+import openai
+import os
 # === 設定區 ===
 BOT_TOKEN = "7915485999:AAHSYzBi1-Hh8PRvRRhbmnuafsey8BdNS8o"
 WEBHOOK_URL = "https://finnews1688-bot.onrender.com"  # Render 會自動給你
-openai.api_key = "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"
+
+
+# 獲取 OpenAI API 密鑰
+openai_api_key = os.getenv("OPENAI_API_KEY")
+openai.api_key = openai_api_key
+# 使用這個密鑰來進行 OpenAI API 呼叫
+
 # ===========
 
 app = Flask(__name__)
