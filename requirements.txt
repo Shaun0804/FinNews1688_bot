@@ -4,3 +4,5 @@ python-telegram-bot==20.8
 openai==1.8.0
 beautifulsoup4==4.13.0
 requests==2.32.3
+feedparser==6.0.10
+apscheduler==3.8.1
