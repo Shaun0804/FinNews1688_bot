@@ -9,7 +9,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 # === 設定區 ===
 BOT_TOKEN = "7915485999:AAHSYzBi1-Hh8PRvRRhbmnuafsey8BdNS8o"
 WEBHOOK_URL = "https://finnews1688-bot.onrender.com"  # Render 會自動給你
-openai.api_key = "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"
+openai.api_key = "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"
 # ===========
 
 app = Flask(__name__)
@@ -59,9 +59,9 @@ application.add_handler(CommandHandler("news", news))
 
 # === Webhook 路由 ===
 @app.route(f"/{BOT_TOKEN}", methods=["POST"])
-async def webhook():
+def webhook():
     data = request.get_json(force=True)
-    await application.update_queue.put(Update.de_json(data, application.bot))
+    application.update_queue.put_nowait(Update.de_json(data, application.bot))
     return "ok"
 
 # === 初次啟動時設定 Webhook ===
