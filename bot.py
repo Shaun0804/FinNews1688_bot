@@ -67,21 +67,20 @@ async def news(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ========= 摘要工具 =========
 async def get_news_summary(content: str) -> str:
     try:
-        prompt = f"請將以下新聞內容進行摘要，並控制在 300 字以內：\n\n{content}"
-        resp = openai.Completion.create(
-            model="text-davinci-003",
-            prompt=prompt,
+        messages = [
+            {"role": "system", "content": "你是一位財經新聞摘要助手，請用簡潔口吻摘要文章，不超過 300 字。"},
+            {"role": "user", "content": f"請將以下新聞內容摘要：\n\n{content}"}
+        ]
+        response = await openai.ChatCompletion.acreate(
+            model="gpt-3.5-turbo",
+            messages=messages,
             max_tokens=300,
             temperature=0.7
         )
-        if resp.choices:
-            return resp.choices[0].text.strip()
-        else:
-            return "無法生成摘要，請稍後再試。"
+        return response.choices[0].message.content.strip()
     except Exception as e:
         logger.error(f"OpenAI 摘要錯誤: {e}")
         return "無法生成摘要，請稍後再試。"
-
 # ========= 定時推播功能 =========
 async def send_daily_news():
     feed = feedparser.parse(RSS_URL)
