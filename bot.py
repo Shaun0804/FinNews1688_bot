@@ -2,20 +2,20 @@ import os
 import openai
 import feedparser
 import logging
-import asyncio
 from flask import Flask, request
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackContext
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from datetime import datetime
+import asyncio
 
 # 設定 OpenAI API 金鑰
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 # Telegram Bot Token 與 Webhook 網址
 BOT_TOKEN = "7915485999:AAHSYzBi1-Hh8PRvRRhbmnuafsey8BdNS8o"
-WEBHOOK_URL = "https://finnews1688-bot.onrender.com"  # Render 會自動給你
+WEBHOOK_URL = "https://finnews1688-bot.onrender.com"
 
 # RSS 設定
 RSS_URL = "https://money.udn.com/rssfeed/news/6215/4097878"
@@ -26,22 +26,22 @@ SUMMARY_PROMPT = "請將以下新聞內容進行摘要，並控制在 300 字以
 # 初始化 Flask
 app = Flask(__name__)
 
-# Telegram Bot 應用
+# 建立 Telegram 應用
 application = ApplicationBuilder().token(BOT_TOKEN).build()
 
-# 記錄 log
+# 設定 log
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # /start 指令
-def start(update: Update, context: CallbackContext):
-    context.bot.send_message(update.effective_chat.id, "你好，我是 FinNews Bot！輸入 /news 查看今日重點新聞。")
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="你好，我是 FinNews Bot！輸入 /news 查看今日重點新聞。")
 
 # /news 指令
-def news(update: Update, context: CallbackContext):
+async def news(update: Update, context: ContextTypes.DEFAULT_TYPE):
     feed = feedparser.parse(RSS_URL)
     if not feed.entries:
-        context.bot.send_message(update.effective_chat.id, "目前沒有最新的新聞。")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="目前沒有最新的新聞。")
         return
 
     latest_entry = feed.entries[0]
@@ -50,15 +50,15 @@ def news(update: Update, context: CallbackContext):
     published = datetime(*latest_entry.published_parsed[:6])
     summary = get_news_summary(latest_entry.summary)
 
-    context.bot.send_message(
-        update.effective_chat.id,
-        f"📢 最新新聞：{title}\n\n"
-        f"🕒 發佈時間：{published.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-        f"🔗 來源連結：{link}\n\n"
-        f"📝 摘要：\n{summary}"
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=f"📢 最新新聞：{title}\n\n"
+             f"🕒 發佈時間：{published.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+             f"🔗 來源連結：{link}\n\n"
+             f"📝 摘要：\n{summary}"
     )
 
-# 摘要工具
+# 取得新聞摘要（OpenAI）
 def get_news_summary(news_content: str) -> str:
     prompt = SUMMARY_PROMPT + news_content
     response = openai.Completion.create(
@@ -69,25 +69,21 @@ def get_news_summary(news_content: str) -> str:
     )
     return response.choices[0].text.strip()
 
-# Webhook 設定
-def setup_webhook():
-    application.bot.delete_webhook()
-    application.bot.set_webhook(url=f"{WEBHOOK_URL}/{BOT_TOKEN}")  # 加上 token！
+# 處理 Webhook（注意是 async）
+@app.route(f"/{BOT_TOKEN}", methods=["POST"])
+async def telegram_webhook():
+    data = request.get_json(force=True)
+    update = Update.de_json(data, application.bot)
+    await application.process_update(update)
+    return "ok"
 
-# Webhook 接收
-@app.route(f'/{BOT_TOKEN}', methods=['POST'])
-def telegram_webhook():
-    update = Update.de_json(request.get_json(force=True), application.bot)
-    asyncio.run(application.process_update(update))  # 正確執行 coroutine
-    return 'ok'
-
-# 首頁 route（避免 404）
+# 首頁（避免 404）
 @app.route("/", methods=["GET"])
 def index():
     return "FinNews Bot is running."
 
-# 定時推播新聞（預設 24 小時一次）
-def send_daily_news():
+# 每日推播新聞（簡單例子）
+async def send_daily_news():
     feed = feedparser.parse(RSS_URL)
     if not feed.entries:
         logger.warning("目前沒有最新的新聞。")
@@ -100,9 +96,8 @@ def send_daily_news():
     summary = get_news_summary(latest_entry.summary)
 
     try:
-        # 發送給測試用 chat_id（建議換成實際用戶列表或你的 Telegram chat_id）
-        test_chat_id = 123456789  # 改成你自己的 chat_id
-        application.bot.send_message(
+        test_chat_id = 123456789  # ⚠️ 請換成你的 chat_id
+        await application.bot.send_message(
             chat_id=test_chat_id,
             text=f"📢 最新新聞：{title}\n\n"
                  f"🕒 發佈時間：{published.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
@@ -112,11 +107,16 @@ def send_daily_news():
     except Exception as e:
         logger.error(f"無法發送訊息: {e}")
 
-# 加入指令處理器
+# 設定 webhook（async）
+async def setup_webhook():
+    await application.bot.delete_webhook()
+    await application.bot.set_webhook(url=f"{WEBHOOK_URL}/{BOT_TOKEN}")
+
+# 註冊指令處理器
 application.add_handler(CommandHandler("start", start))
 application.add_handler(CommandHandler("news", news))
 
-# 定時任務排程器
+# 啟用排程器
 scheduler = AsyncIOScheduler()
 scheduler.add_job(
     send_daily_news,
@@ -126,7 +126,7 @@ scheduler.add_job(
 )
 scheduler.start()
 
-# 啟動 Flask
+# 啟動 Flask 應用 + 設定 webhook
 if __name__ == "__main__":
-    setup_webhook()  # 設定 webhook
-    app.run(host="0.0.0.0", port=10000)  # 運行 Flask 應用
+    asyncio.run(setup_webhook())
+    app.run(host="0.0.0.0", port=10000)
