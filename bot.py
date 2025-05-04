@@ -2,6 +2,7 @@ import os
 import openai
 import feedparser
 import logging
+import asyncio
 from flask import Flask, request
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackContext
@@ -77,7 +78,7 @@ def setup_webhook():
 @app.route(f'/{BOT_TOKEN}', methods=['POST'])
 def telegram_webhook():
     update = Update.de_json(request.get_json(force=True), application.bot)
-    application.process_update(update)  # 不需要用 asyncio.run()，直接處理更新
+    asyncio.run(application.process_update(update))  # 正確執行 coroutine
     return 'ok'
 
 # 首頁 route（避免 404）
