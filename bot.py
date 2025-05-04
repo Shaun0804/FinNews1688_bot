@@ -7,7 +7,7 @@ import openai
 
 # ====== 設定 ======
 BOT_TOKEN = '7915485999:AAHSYzBi1-Hh8PRvRRhbmnuafsey8BdNS8o'
-openai.api_key = "YOUR_OPENAI_KEY"
+openai.api_key = "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"
 # ===================
 
 # === 基本設定 ===
