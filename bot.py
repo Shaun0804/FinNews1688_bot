@@ -18,7 +18,7 @@ WEBHOOK_URL  = os.getenv("WEBHOOK_URL")  or "https://yourdomain.com"
 TEST_CHAT_ID = int(os.getenv("TEST_CHAT_ID", "123456789"))
 
 openai.api_key = os.getenv("OPENAI_API_KEY") or "你的_openai_api_key"
-RSS_URL = "https://money.udn.com/rssfeed/news/6215/4097878"
+RSS_URL = os.getenv("RSS_URL")
 
 # ========= 日誌設定 =========
 logging.basicConfig(level=logging.INFO)
