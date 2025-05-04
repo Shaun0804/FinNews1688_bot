@@ -138,6 +138,5 @@ async def setup_webhook():
 
 # 啟動應用程式
 if __name__ == "__main__":
-    # 設定 Webhook
-    asyncio.run(setup_webhook())
-    application.run_polling()
+    asyncio.run(setup_webhook())  # 設定 webhook
+    app.run(host='0.0.0.0', port=10000)  # 運行 Flask 應用
