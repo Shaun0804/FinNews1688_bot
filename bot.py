@@ -88,8 +88,12 @@ async def setup_webhook():
     await application.bot.delete_webhook()
     await application.bot.set_webhook(url=WEBHOOK_URL)
 
+@app.route("/", methods=["POST"])
+def webhook():
+    update = Update.de_json(request.get_json(force=True), application.bot)
+    application.update_queue.put_nowait(update)
+    return "OK"
 # Flask 頁面 route（可避免 404）
-@app.route('/')
 def index():
     return 'FinNews Bot is running.'
 
@@ -149,5 +153,6 @@ application.add_handler(CommandHandler("news", news))
 
 # 啟動應用程式
 if __name__ == "__main__":
+    import asyncio
     asyncio.run(setup_webhook())  # 設定 webhook
     app.run(host='0.0.0.0', port=10000)  # 運行 Flask 應用
