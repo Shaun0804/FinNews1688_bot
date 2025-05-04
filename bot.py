@@ -1,42 +1,42 @@
 import logging
 import requests
 from bs4 import BeautifulSoup
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 import openai
+import telegram
+from telegram import Update
+from telegram.ext import CommandHandler, Dispatcher
+from flask import Flask, request
 
-# ====== 設定 ======
-BOT_TOKEN = '7915485999:AAHSYzBi1-Hh8PRvRRhbmnuafsey8BdNS8o'
+# === 設定區 ===
+BOT_TOKEN = "7915485999:AAHSYzBi1-Hh8PRvRRhbmnuafsey8BdNS8o"
+WEBHOOK_URL = "https://finnews1688-bot.onrender.com"  # Render 會自動給你
 openai.api_key = "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"
-# ===================
+# ===========
 
-# === 基本設定 ===
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# 建立 Flask App
+app = Flask(__name__)
+bot = telegram.Bot(token=BOT_TOKEN)
+dispatcher = Dispatcher(bot=bot, update_queue=None, workers=0)
 
-# === 抓取新聞 ===
+# === 指令功能 ===
 def fetch_udn_news():
-    url = "https://money.udn.com/rank/newest/1001"  # 財經新聞
+    url = "https://money.udn.com/rank/newest/1001"
     headers = {"User-Agent": "Mozilla/5.0"}
     res = requests.get(url, headers=headers)
     soup = BeautifulSoup(res.text, "html.parser")
 
     articles = []
-    for item in soup.select("div.story__content")[:3]:  # 最新三則
+    for item in soup.select("div.story__content")[:3]:
         title = item.select_one("h3 a").text.strip()
         link = "https://money.udn.com" + item.select_one("h3 a")["href"]
         articles.append((title, link))
     return articles
 
-# === GPT 摘要與分析 ===
-def summarize_and_analyze(title, url):
+def summarize(title, url):
     prompt = f"""請針對這則新聞進行摘要與觀點分析：
 標題：{title}
 連結：{url}
-
-請條列回覆，包含：
-1. 新聞重點
-2. 觀點分析（例如對金融市場、產業、消費者可能的影響）
+請條列重點與觀點分析。
 """
     try:
         response = openai.ChatCompletion.create(
@@ -46,25 +46,30 @@ def summarize_and_analyze(title, url):
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
-        return f"⚠️ 產生摘要時發生錯誤：{e}"
+        return f"❗️發生錯誤：{e}"
 
-# === /news 指令處理 ===
-async def news(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("📡 正在取得最新財經新聞...")
-    news_list = fetch_udn_news()
+def handle_news(update: Update, context):
+    articles = fetch_udn_news()
+    for title, link in articles:
+        summary = summarize(title, link)
+        update.message.reply_text(f"📰 {title}\n🔗 {link}\n\n{summary}")
 
-    for title, url in news_list:
-        summary = summarize_and_analyze(title, url)
-        msg = f"📰 {title}\n🔗 {url}\n\n{summary}"
-        await update.message.reply_text(msg)
+# === 加入指令處理器 ===
+dispatcher.add_handler(CommandHandler("news", handle_news))
 
-# === 主程式 ===
-def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("news", news))
-    
-    print("✅ FinNews Bot 已啟動，等待指令 /news")
-    app.run_polling(drop_pending_updates=True)
+# === Webhook 路由 ===
+@app.route(f"/{BOT_TOKEN}", methods=["POST"])
+def webhook():
+    update = telegram.Update.de_json(request.get_json(force=True), bot)
+    dispatcher.process_update(update)
+    return "ok"
 
+# === 啟用 Webhook ===
+@app.before_first_request
+def setup():
+    bot.delete_webhook()  # 確保乾淨狀態
+    bot.set_webhook(f"{WEBHOOK_URL}/{BOT_TOKEN}")
+
+# === 啟動 Flask App ===
 if __name__ == "__main__":
-    main()
+    app.run(host="0.0.0.0", port=5000)
