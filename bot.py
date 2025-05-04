@@ -74,7 +74,7 @@ async def setup_webhook():
 
 # Webhook 接收
 @app.route(f"/{BOT_TOKEN}", methods=["POST"])
-async def telegram_webhook():
+def telegram_webhook():
     update = Update.de_json(request.get_json(force=True), application.bot)
     await application.process_update(update)
     return "ok"
