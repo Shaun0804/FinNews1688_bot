@@ -3,6 +3,7 @@ import logging
 import feedparser
 import asyncio
 import threading
+import httpx  # 新增：用來連接 Mistral (OpenRouter)
 
 from datetime import datetime
 from flask import Flask, request
@@ -10,15 +11,13 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
-import openai
 
 # ========= 環境變數設定 =========
 BOT_TOKEN    = os.getenv("BOT_TOKEN")    or "你的_bot_token"
 WEBHOOK_URL  = os.getenv("WEBHOOK_URL")  or "https://yourdomain.com"
 TEST_CHAT_ID = int(os.getenv("TEST_CHAT_ID", "123456789"))
-
-openai.api_key = os.getenv("OPENAI_API_KEY") or "你的_openai_api_key"
-RSS_URL = os.getenv("RSS_URL")
+RSS_URL      = os.getenv("RSS_URL")      or "https://example.com/rss"
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY") or "你的_openrouter_api_key"
 
 # ========= 日誌設定 =========
 logging.basicConfig(level=logging.INFO)
@@ -56,31 +55,39 @@ async def news(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
-        text=(
-            f"📢 最新新聞：{title}\n\n"
-            f"🕒 發佈時間：{published:%Y-%m-%d %H:%M:%S}\n\n"
-            f"🔗 來源連結：{link}\n\n"
-            f"📝 摘要：\n{summary}"
-        )
+        text=(f"📢 最新新聞：{title}\n\n"
+              f"🕒 發佈時間：{published:%Y-%m-%d %H:%M:%S}\n\n"
+              f"🔗 來源連結：{link}\n\n"
+              f"📝 摘要：\n{summary}")
     )
 
-# ========= 摘要工具 =========
+# ========= 使用 Mistral (OpenRouter) 的摘要工具 =========
 async def get_news_summary(content: str) -> str:
     try:
-        messages = [
-            {"role": "system", "content": "你是一位財經新聞摘要助手，請用簡潔口吻摘要文章，不超過 300 字。"},
-            {"role": "user", "content": f"請將以下新聞內容摘要：\n\n{content}"}
-        ]
-        response = await openai.ChatCompletion.acreate(
-            model="gpt-3.5-turbo",
-            messages=messages,
-            max_tokens=300,
-            temperature=0.7
-        )
-        return response.choices[0].message.content.strip()
+        headers = {
+            "Authorization": f"Bearer {MISTRAL_API_KEY}",
+            "Content-Type": "application/json"
+        }
+
+        body = {
+            "model": "mistral-7b-instruct",  # 可替換為 openrouter 支援的其他模型
+            "messages": [
+                {"role": "system", "content": "你是一位財經新聞摘要助手，請用簡潔口吻摘要文章，不超過 300 字。"},
+                {"role": "user", "content": f"請將以下新聞內容摘要：\n\n{content}"}
+            ],
+            "max_tokens": 300,
+            "temperature": 0.7
+        }
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=body)
+            response.raise_for_status()
+            return response.json()["choices"][0]["message"]["content"].strip()
+
     except Exception as e:
-        logger.error(f"OpenAI 摘要錯誤: {e}")
+        logger.error(f"Mistral 摘要錯誤: {e}")
         return "無法生成摘要，請稍後再試。"
+
 # ========= 定時推播功能 =========
 async def send_daily_news():
     feed = feedparser.parse(RSS_URL)
@@ -101,12 +108,10 @@ async def send_daily_news():
     try:
         await application.bot.send_message(
             chat_id=TEST_CHAT_ID,
-            text=(
-                f"📢 最新新聞：{title}\n\n"
-                f"🕒 發佈時間：{published:%Y-%m-%d %H:%M:%S}\n\n"
-                f"🔗 來源連結：{link}\n\n"
-                f"📝 摘要：\n{summary}"
-            )
+            text=(f"📢 最新新聞：{title}\n\n"
+                  f"🕒 發佈時間：{published:%Y-%m-%d %H:%M:%S}\n\n"
+                  f"🔗 來源連結：{link}\n\n"
+                  f"📝 摘要：\n{summary}")
         )
     except Exception as e:
         logger.error(f"推播失敗: {e}")
@@ -114,7 +119,6 @@ async def send_daily_news():
 # ========= Webhook Endpoint =========
 @app.route(f'/{BOT_TOKEN}', methods=['POST'])
 def webhook():
-    """接收 Telegram Webhook 並提交到背景事件迴圈處理"""
     data = request.get_json(force=True)
     update = Update.de_json(data, application.bot)
 
@@ -134,19 +138,15 @@ def index():
 
 # ========= 啟動 & 事件迴圈 =========
 async def init_app():
-    # 1. 註冊命令
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("news", news))
 
-    # 2. 初始化並啟動 Application
     await application.initialize()
     await application.start()
 
-    # 3. 設定 Webhook
     await application.bot.delete_webhook()
     await application.bot.set_webhook(url=f"{WEBHOOK_URL}/{BOT_TOKEN}")
 
-    # 4. 啟動排程
     scheduler = AsyncIOScheduler()
     scheduler.add_job(
         lambda: asyncio.create_task(send_daily_news()),
@@ -165,13 +165,9 @@ def start_bot_loop(loop: asyncio.AbstractEventLoop):
     loop.run_forever()
 
 if __name__ == "__main__":
-    # 建立專屬的背景事件迴圈
     bot_loop = asyncio.new_event_loop()
-    # 在該迴圈中執行初始化
     bot_loop.run_until_complete(init_app())
-    # 啟動事件迴圈（daemon 執行緒）
     threading.Thread(target=start_bot_loop, args=(bot_loop,), daemon=True).start()
 
-    # 啟動 Flask
     port = int(os.getenv("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
