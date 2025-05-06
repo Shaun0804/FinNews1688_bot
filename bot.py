@@ -3,7 +3,7 @@ import logging
 import feedparser
 import asyncio
 import threading
-import httpx  # 新增：用來連接 Mistral (OpenRouter)
+import httpx
 
 from datetime import datetime
 from flask import Flask, request
@@ -11,13 +11,16 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
+from dotenv import load_dotenv
 
-# ========= 環境變數設定 =========
+# ========= 載入環境變數 =========
+load_dotenv()
+
 BOT_TOKEN    = os.getenv("BOT_TOKEN")    or "你的_bot_token"
 WEBHOOK_URL  = os.getenv("WEBHOOK_URL")  or "https://yourdomain.com"
 TEST_CHAT_ID = int(os.getenv("TEST_CHAT_ID", "123456789"))
-RSS_URL      = os.getenv("RSS_URL")      or "https://example.com/rss"
-MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY") or "你的_openrouter_api_key"
+RSS_URL      = os.getenv("RSS_URL")
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 
 # ========= 日誌設定 =========
 logging.basicConfig(level=logging.INFO)
@@ -61,29 +64,29 @@ async def news(update: Update, context: ContextTypes.DEFAULT_TYPE):
               f"📝 摘要：\n{summary}")
     )
 
-# ========= 使用 Mistral (OpenRouter) 的摘要工具 =========
+# ========= 摘要工具：使用 Mistral 原生 API =========
 async def get_news_summary(content: str) -> str:
+    url = "https://api.mistral.ai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {MISTRAL_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": "mistral-small",  # 可換成 mistral-medium 或 mistral-large
+        "messages": [
+            {"role": "system", "content": "你是一位財經新聞摘要助手，請用簡潔口吻摘要文章，不超過 300 字。"},
+            {"role": "user", "content": f"請將以下新聞內容摘要：\n\n{content}"}
+        ],
+        "temperature": 0.7,
+        "max_tokens": 300
+    }
+
     try:
-        headers = {
-            "Authorization": f"Bearer {MISTRAL_API_KEY}",
-            "Content-Type": "application/json"
-        }
-
-        body = {
-            "model": "mistral-7b-instruct",  # 可替換為 openrouter 支援的其他模型
-            "messages": [
-                {"role": "system", "content": "你是一位財經新聞摘要助手，請用簡潔口吻摘要文章，不超過 300 字。"},
-                {"role": "user", "content": f"請將以下新聞內容摘要：\n\n{content}"}
-            ],
-            "max_tokens": 300,
-            "temperature": 0.7
-        }
-
         async with httpx.AsyncClient() as client:
-            response = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=body)
+            response = await client.post(url, headers=headers, json=payload)
             response.raise_for_status()
-            return response.json()["choices"][0]["message"]["content"].strip()
-
+            result = response.json()
+            return result["choices"][0]["message"]["content"].strip()
     except Exception as e:
         logger.error(f"Mistral 摘要錯誤: {e}")
         return "無法生成摘要，請稍後再試。"
@@ -138,15 +141,18 @@ def index():
 
 # ========= 啟動 & 事件迴圈 =========
 async def init_app():
+    # 註冊指令
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("news", news))
 
     await application.initialize()
     await application.start()
 
+    # 設定 Webhook
     await application.bot.delete_webhook()
     await application.bot.set_webhook(url=f"{WEBHOOK_URL}/{BOT_TOKEN}")
 
+    # 啟動排程
     scheduler = AsyncIOScheduler()
     scheduler.add_job(
         lambda: asyncio.create_task(send_daily_news()),
