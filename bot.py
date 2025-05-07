@@ -5,7 +5,6 @@ import asyncio
 import threading
 import httpx
 import re
-import time
 
 from datetime import datetime
 from flask import Flask, request
@@ -93,22 +92,17 @@ async def generate_news_analysis(content: str) -> tuple[str, str]:
         "max_tokens": 600
     }
 
-    # 重新嘗試的邏輯：最多重試3次
-    for attempt in range(3):
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(url, headers=headers, json=payload)
-                response.raise_for_status()
-                result = response.json()
-                full_text = result["choices"][0]["message"]["content"].strip()
-                summary, advisor = parse_summary_and_advice(full_text)
-                return summary, advisor
-        except Exception as e:
-            logger.error(f"Mistral 分析錯誤: {e} (嘗試 {attempt+1}/3)")
-            if attempt < 2:
-                time.sleep(2)  # 等待2秒後重試
-            else:
-                return "無法生成摘要，請稍後再試。", "無法生成理財觀點，請稍後再試。"
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+            result = response.json()
+            full_text = result["choices"][0]["message"]["content"].strip()
+            summary, advisor = parse_summary_and_advice(full_text)
+            return summary, advisor
+    except Exception as e:
+        logger.error(f"Mistral 分析錯誤: {e}")
+        return "無法生成摘要，請稍後再試。", "無法生成理財觀點，請稍後再試。"
 
 # ========parse_summary_and_advice()==============
 def parse_summary_and_advice(text: str) -> tuple[str, str]:
@@ -148,6 +142,46 @@ async def send_daily_news():
     except Exception as e:
         logger.error(f"推播失敗: {e}")
 
+# ========= 顯示 5 則新聞 =========
+async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    feed = feedparser.parse(RSS_URL)
+    if not feed.entries:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="目前沒有最新的新聞。"
+        )
+        return
+
+    # 顯示 5 則新聞
+    news_count = 5
+    news_messages = []
+    for entry in feed.entries[:news_count]:
+        title = entry.title
+        link = entry.link
+        try:
+            published = datetime(*entry.published_parsed[:6])
+        except Exception:
+            published = datetime.now()
+
+        summary, advisor = await generate_news_analysis(entry.summary)
+
+        news_messages.append(
+            (f"📢 最新新聞：{title}\n\n"
+             f"🕒 發佈時間：{published:%Y-%m-%d %H:%M:%S}\n\n"
+             f"🔗 來源連結：{link}\n\n"
+             f"📝 摘要：\n{summary}\n\n"
+             f"💡 理專觀點：\n{advisor}")
+        )
+
+    # 傳送多則新聞
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text="\n\n".join(news_messages)
+    )
+
+# 並將 "/today" 指令添加到指令處理
+application.add_handler(CommandHandler("today", today))
+
 # ========= Webhook Endpoint =========
 @app.route(f'/{BOT_TOKEN}', methods=['POST'])
 def webhook():
@@ -172,7 +206,6 @@ def index():
 async def init_app():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("news", news))
-    application.add_handler(CommandHandler("today", news))  # 新增 today 指令
 
     await application.initialize()
     await application.start()
