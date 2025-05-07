@@ -51,14 +51,15 @@ async def news(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         published = datetime.now()
 
-    summary = await get_news_summary(entry.summary)
+    summary, advisor = await generate_news_analysis(entry.summary)
 
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=(f"📢 最新新聞：{title}\n\n"
               f"🕒 發佈時間：{published:%Y-%m-%d %H:%M:%S}\n\n"
               f"🔗 來源連結：{link}\n\n"
-              f"📝 摘要：\n{summary}")
+              f"📝 摘要：\n{summary}\n\n"
+              f"💡 理專觀點：\n{advisor}")
     )
 
 # ========= 使用 Mistral 原生 API 產生摘要 =========
