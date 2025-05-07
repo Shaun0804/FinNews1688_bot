@@ -4,6 +4,7 @@ import feedparser
 import asyncio
 import threading
 import httpx
+import re
 
 from datetime import datetime
 from flask import Flask, request
@@ -69,10 +70,21 @@ async def generate_news_analysis(content: str) -> tuple[str, str]:
         "Authorization": f"Bearer {MISTRAL_API_KEY}",
         "Content-Type": "application/json"
     }
-    messages = [
-        {"role": "system", "content": "你是一位財經新聞摘要助手，請用簡潔口吻摘要文章（限 300 字），並給出理財專員的觀點建議。"},
-        {"role": "user", "content": f"請將以下新聞內容摘要，並加入理財專員的看法建議：\n\n{content}"}
-    ]
+    "messages": [
+    {
+        "role": "system",
+        "content": (
+            "你是一位財經新聞摘要助手，請用以下格式回答：\n"
+            "【摘要】新聞重點，不超過 300 字。\n"
+            "【理財建議】以理專角度評論此新聞對客戶的啟示與建議。\n"
+            "請務必用這兩個段落清楚分開。"
+        )
+    },
+    {
+        "role": "user",
+        "content": f"請將以下新聞內容摘要，並加入理財專員的看法建議：\n\n{content}"
+    }
+],
     payload = {
         "model": "mistral-small",
         "messages": messages,
@@ -86,6 +98,8 @@ async def generate_news_analysis(content: str) -> tuple[str, str]:
             response.raise_for_status()
             result = response.json()
             full_text = result["choices"][0]["message"]["content"].strip()
+            summary, advisor = parse_summary_and_advice(full_text)
+            return summary, advisor
 
             # 用分隔符拆出兩段文字（你也可以用其他格式規範）
             if "理財建議：" in full_text:
@@ -96,7 +110,14 @@ async def generate_news_analysis(content: str) -> tuple[str, str]:
     except Exception as e:
         logger.error(f"Mistral 分析錯誤: {e}")
         return "無法生成摘要，請稍後再試。", "無法生成理財觀點，請稍後再試。"
+# ========parse_summary_and_advice()==============
+def parse_summary_and_advice(text: str) -> tuple[str, str]:
+    summary_match = re.search(r"【摘要】(.*?)【理財建議】", text, re.DOTALL)
+    advice_match = re.search(r"【理財建議】(.*)", text, re.DOTALL)
 
+    summary = summary_match.group(1).strip() if summary_match else "無法提取摘要段落。"
+    advice = advice_match.group(1).strip() if advice_match else "無法提取理財觀點段落。"
+    return summary, advice
 # ========= 定時推播功能 =========
 async def send_daily_news():
     feed = feedparser.parse(RSS_URL)
