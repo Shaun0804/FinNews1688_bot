@@ -129,22 +129,28 @@ async def generate_news_analysis(content: str) -> tuple[str, str]:
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(url, headers=headers, json=payload)
-            response.raise_for_status()
+            response.raise_for_status()  # 確保成功回應
             result = response.json()
             full_text = result["choices"][0]["message"]["content"].strip()
             summary, advisor = parse_summary_and_advice(full_text)
+            if summary == "無法提取摘要段落。" or advisor == "無法提取理財觀點段落。":
+                logger.error(f"無法生成摘要或觀點：{full_text}")
             return summary, advisor
     except Exception as e:
         logger.error(f"Mistral 分析錯誤: {e}")
         return "無法生成摘要，請稍後再試。", "無法生成觀點，請稍後再試。"
 
 def parse_summary_and_advice(text: str) -> tuple[str, str]:
-    summary_match = re.search(r"【摘要】(.*?)【理財建議】", text, re.DOTALL)
-    advice_match = re.search(r"【理財建議】(.*)", text, re.DOTALL)
+    try:
+        summary_match = re.search(r"【摘要】(.*?)【理財建議】", text, re.DOTALL)
+        advice_match = re.search(r"【理財建議】(.*)", text, re.DOTALL)
 
-    summary = summary_match.group(1).strip() if summary_match else "無法提取摘要段落。"
-    advice = advice_match.group(1).strip() if advice_match else "無法提取理財觀點段落。"
-    return summary, advice
+        summary = summary_match.group(1).strip() if summary_match else "無法提取摘要段落。"
+        advice = advice_match.group(1).strip() if advice_match else "無法提取理財觀點段落。"
+        return summary, advice
+    except Exception as e:
+        logger.error(f"解析摘要與觀點失敗: {e}")
+        return "無法提取摘要段落。", "無法提取理財觀點段落。"
 
 # ========= 定時推播每日 5 則新聞 =========
 async def send_daily_news():
