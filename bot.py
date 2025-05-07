@@ -60,10 +60,10 @@ async def news(update: Update, context: ContextTypes.DEFAULT_TYPE):
               f"🕒 發佈時間：{published:%Y-%m-%d %H:%M:%S}\n\n"
               f"🔗 來源連結：{link}\n\n"
               f"📝 摘要：\n{summary}\n\n"
-              f"💡 理專觀點：\n{advisor}")
+              f"💡 觀點：\n{advisor}")
     )
 
-# ========= 使用 Mistral 原生 API 產生摘要 =========
+# ========= 使用 Mistral API 產生摘要 =========
 async def generate_news_analysis(content: str) -> tuple[str, str]:
     url = "https://api.mistral.ai/v1/chat/completions"
     headers = {
@@ -79,13 +79,13 @@ async def generate_news_analysis(content: str) -> tuple[str, str]:
                 "content": (
                     "你是一位財經新聞摘要助手，請用以下格式回答：\n"
                     "【摘要】新聞重點，不超過 300 字。\n"
-                    "【理財建議】以理專角度評論此新聞對客戶的啟示與建議。\n"
+                    "【觀點】以理專角度評論此新聞對台灣投資人的啟示，清楚分點說明，語氣簡潔易懂。\n"
                     "請務必用這兩個段落清楚分開。"
                 )
             },
             {
                 "role": "user",
-                "content": f"請將以下新聞內容摘要，並加入理財專員的看法建議：\n\n{content}"
+                "content": f"請將以下新聞內容摘要，並加入理專觀點：\n\n{content}"
             }
         ],
         "temperature": 0.7,
@@ -102,43 +102,47 @@ async def generate_news_analysis(content: str) -> tuple[str, str]:
             return summary, advisor
     except Exception as e:
         logger.error(f"Mistral 分析錯誤: {e}")
-        return "無法生成摘要，請稍後再試。", "無法生成理財觀點，請稍後再試。"
-# ========parse_summary_and_advice()==============
+        return "無法生成摘要，請稍後再試。", "無法生成觀點，請稍後再試。"
+
+# ========= 摘要與觀點抽取 =========
 def parse_summary_and_advice(text: str) -> tuple[str, str]:
-    summary_match = re.search(r"【摘要】(.*?)【理財建議】", text, re.DOTALL)
-    advice_match = re.search(r"【理財建議】(.*)", text, re.DOTALL)
+    summary_match = re.search(r"【摘要】(.*?)【觀點】", text, re.DOTALL)
+    advice_match = re.search(r"【觀點】(.*)", text, re.DOTALL)
 
     summary = summary_match.group(1).strip() if summary_match else "無法提取摘要段落。"
-    advice = advice_match.group(1).strip() if advice_match else "無法提取理財觀點段落。"
+    advice = advice_match.group(1).strip() if advice_match else "無法提取觀點段落。"
     return summary, advice
-# ========= 定時推播功能 =========
+
+# ========= 每日五則新聞推播功能 =========
 async def send_daily_news():
     feed = feedparser.parse(RSS_URL)
     if not feed.entries:
         logger.warning("目前沒有最新的新聞。")
         return
 
-    entry = feed.entries[0]
-    title = entry.title
-    link = entry.link
-    try:
-        published = datetime(*entry.published_parsed[:6])
-    except Exception:
-        published = datetime.now()
+    entries = feed.entries[:5]  # 前五則
+    for entry in entries:
+        title = entry.title
+        link = entry.link
+        try:
+            published = datetime(*entry.published_parsed[:6])
+        except Exception:
+            published = datetime.now()
 
-    summary, advisor = await generate_news_analysis(entry.summary)
-    
-    try:
-        await application.bot.send_message(
-            chat_id=TEST_CHAT_ID,
-            text=(f"📢 最新新聞：{title}\n\n"
-                  f"🕒 發佈時間：{published:%Y-%m-%d %H:%M:%S}\n\n"
-                  f"🔗 來源連結：{link}\n\n"
-                  f"📝 摘要：\n{summary}\n\n"
-                  f"💡 理專觀點：\n{advisor}")
-        )
-    except Exception as e:
-        logger.error(f"推播失敗: {e}")
+        summary, advisor = await generate_news_analysis(entry.summary)
+
+        try:
+            await application.bot.send_message(
+                chat_id=TEST_CHAT_ID,
+                text=(f"📢 熱門新聞：{title}\n\n"
+                      f"🕒 發佈時間：{published:%Y-%m-%d %H:%M:%S}\n\n"
+                      f"🔗 來源連結：{link}\n\n"
+                      f"📝 摘要：\n{summary}\n\n"
+                      f"💡 觀點：\n{advisor}")
+            )
+            await asyncio.sleep(2)  # 避免限流
+        except Exception as e:
+            logger.error(f"推播失敗：{e}")
 
 # ========= Webhook Endpoint =========
 @app.route(f'/{BOT_TOKEN}', methods=['POST'])
@@ -176,7 +180,7 @@ async def init_app():
         lambda: asyncio.create_task(send_daily_news()),
         trigger=IntervalTrigger(
             hours=24,
-            start_date="2025-05-05 09:00:00",
+            start_date="2025-05-07 08:00:00",  # 自訂推播時間
             timezone="Asia/Taipei"
         ),
         id="daily_news",
