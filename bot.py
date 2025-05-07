@@ -5,6 +5,7 @@ import asyncio
 import threading
 import httpx
 import re
+import time
 
 from datetime import datetime
 from flask import Flask, request
@@ -32,7 +33,7 @@ application = ApplicationBuilder().token(BOT_TOKEN).build()
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
-        text="你好，我是 FinNews Bot！\n\n輸入 /news 查看最新一則新聞\n輸入 /today 查看今日 5 則新聞摘要與觀點"
+        text="你好，我是 FinNews Bot！輸入 /news 查看今日重點新聞。"
     )
 
 async def news(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -60,44 +61,10 @@ async def news(update: Update, context: ContextTypes.DEFAULT_TYPE):
               f"🕒 發佈時間：{published:%Y-%m-%d %H:%M:%S}\n\n"
               f"🔗 來源連結：{link}\n\n"
               f"📝 摘要：\n{summary}\n\n"
-              f"💡 觀點：\n{advisor}")
+              f"💡 理專觀點：\n{advisor}")
     )
 
-async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    feed = feedparser.parse(RSS_URL)
-    if not feed.entries:
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="今天沒有最新新聞。"
-        )
-        return
-
-    entries = feed.entries[:5]
-    for idx, entry in enumerate(entries, start=1):
-        title = entry.title
-        link = entry.link
-        try:
-            published = datetime(*entry.published_parsed[:6])
-        except Exception:
-            published = datetime.now()
-
-        summary, advisor = await generate_news_analysis(entry.summary)
-
-        message = (
-            f"📌 新聞 {idx}：{title}\n\n"
-            f"🕒 發佈時間：{published:%Y-%m-%d %H:%M:%S}\n\n"
-            f"🔗 來源連結：{link}\n\n"
-            f"📝 摘要：\n{summary}\n\n"
-            f"💡 觀點：\n{advisor}"
-        )
-
-        try:
-            await context.bot.send_message(chat_id=update.effective_chat.id, text=message)
-            await asyncio.sleep(2)
-        except Exception as e:
-            logger.error(f"/today 傳送新聞第 {idx} 則失敗: {e}")
-
-# ========= 使用 Mistral API 產生摘要 =========
+# ========= 使用 Mistral 原生 API 產生摘要 =========
 async def generate_news_analysis(content: str) -> tuple[str, str]:
     url = "https://api.mistral.ai/v1/chat/completions"
     headers = {
@@ -126,62 +93,60 @@ async def generate_news_analysis(content: str) -> tuple[str, str]:
         "max_tokens": 600
     }
 
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(url, headers=headers, json=payload)
-            response.raise_for_status()  # 確保成功回應
-            result = response.json()
-            full_text = result["choices"][0]["message"]["content"].strip()
-            summary, advisor = parse_summary_and_advice(full_text)
-            if summary == "無法提取摘要段落。" or advisor == "無法提取理財觀點段落。":
-                logger.error(f"無法生成摘要或觀點：{full_text}")
-            return summary, advisor
-    except Exception as e:
-        logger.error(f"Mistral 分析錯誤: {e}")
-        return "無法生成摘要，請稍後再試。", "無法生成觀點，請稍後再試。"
+    # 重新嘗試的邏輯：最多重試3次
+    for attempt in range(3):
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(url, headers=headers, json=payload)
+                response.raise_for_status()
+                result = response.json()
+                full_text = result["choices"][0]["message"]["content"].strip()
+                summary, advisor = parse_summary_and_advice(full_text)
+                return summary, advisor
+        except Exception as e:
+            logger.error(f"Mistral 分析錯誤: {e} (嘗試 {attempt+1}/3)")
+            if attempt < 2:
+                time.sleep(2)  # 等待2秒後重試
+            else:
+                return "無法生成摘要，請稍後再試。", "無法生成理財觀點，請稍後再試。"
 
+# ========parse_summary_and_advice()==============
 def parse_summary_and_advice(text: str) -> tuple[str, str]:
-    try:
-        summary_match = re.search(r"【摘要】(.*?)【理財建議】", text, re.DOTALL)
-        advice_match = re.search(r"【理財建議】(.*)", text, re.DOTALL)
+    summary_match = re.search(r"【摘要】(.*?)【理財建議】", text, re.DOTALL)
+    advice_match = re.search(r"【理財建議】(.*)", text, re.DOTALL)
 
-        summary = summary_match.group(1).strip() if summary_match else "無法提取摘要段落。"
-        advice = advice_match.group(1).strip() if advice_match else "無法提取理財觀點段落。"
-        return summary, advice
-    except Exception as e:
-        logger.error(f"解析摘要與觀點失敗: {e}")
-        return "無法提取摘要段落。", "無法提取理財觀點段落。"
+    summary = summary_match.group(1).strip() if summary_match else "無法提取摘要段落。"
+    advice = advice_match.group(1).strip() if advice_match else "無法提取理財觀點段落。"
+    return summary, advice
 
-# ========= 定時推播每日 5 則新聞 =========
+# ========= 定時推播功能 =========
 async def send_daily_news():
     feed = feedparser.parse(RSS_URL)
     if not feed.entries:
         logger.warning("目前沒有最新的新聞。")
         return
 
-    entries = feed.entries[:5]
-    for idx, entry in enumerate(entries, start=1):
-        title = entry.title
-        link = entry.link
-        try:
-            published = datetime(*entry.published_parsed[:6])
-        except Exception:
-            published = datetime.now()
+    entry = feed.entries[0]
+    title = entry.title
+    link = entry.link
+    try:
+        published = datetime(*entry.published_parsed[:6])
+    except Exception:
+        published = datetime.now()
 
-        summary, advisor = await generate_news_analysis(entry.summary)
-
-        try:
-            await application.bot.send_message(
-                chat_id=TEST_CHAT_ID,
-                text=(f"📌 新聞 {idx}：{title}\n\n"
-                      f"🕒 發佈時間：{published:%Y-%m-%d %H:%M:%S}\n\n"
-                      f"🔗 來源連結：{link}\n\n"
-                      f"📝 摘要：\n{summary}\n\n"
-                      f"💡 觀點：\n{advisor}")
-            )
-            await asyncio.sleep(2)
-        except Exception as e:
-            logger.error(f"推播第 {idx} 則新聞失敗: {e}")
+    summary, advisor = await generate_news_analysis(entry.summary)
+    
+    try:
+        await application.bot.send_message(
+            chat_id=TEST_CHAT_ID,
+            text=(f"📢 最新新聞：{title}\n\n"
+                  f"🕒 發佈時間：{published:%Y-%m-%d %H:%M:%S}\n\n"
+                  f"🔗 來源連結：{link}\n\n"
+                  f"📝 摘要：\n{summary}\n\n"
+                  f"💡 理專觀點：\n{advisor}")
+        )
+    except Exception as e:
+        logger.error(f"推播失敗: {e}")
 
 # ========= Webhook Endpoint =========
 @app.route(f'/{BOT_TOKEN}', methods=['POST'])
@@ -207,7 +172,7 @@ def index():
 async def init_app():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("news", news))
-    application.add_handler(CommandHandler("today", today))
+    application.add_handler(CommandHandler("today", news))  # 新增 today 指令
 
     await application.initialize()
     await application.start()
