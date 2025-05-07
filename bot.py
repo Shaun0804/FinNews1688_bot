@@ -62,20 +62,21 @@ async def news(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # ========= 使用 Mistral 原生 API 產生摘要 =========
-async def get_news_summary(content: str) -> str:
+async def generate_news_analysis(content: str) -> tuple[str, str]:
     url = "https://api.mistral.ai/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {MISTRAL_API_KEY}",
         "Content-Type": "application/json"
     }
+    messages = [
+        {"role": "system", "content": "你是一位財經新聞摘要助手，請用簡潔口吻摘要文章（限 300 字），並給出理財專員的觀點建議。"},
+        {"role": "user", "content": f"請將以下新聞內容摘要，並加入理財專員的看法建議：\n\n{content}"}
+    ]
     payload = {
         "model": "mistral-small",
-        "messages": [
-            {"role": "system", "content": "你是一位財經新聞摘要助手，請用簡潔口吻摘要文章，不超過 300 字。"},
-            {"role": "user", "content": f"請將以下新聞內容摘要：\n\n{content}"}
-        ],
+        "messages": messages,
         "temperature": 0.7,
-        "max_tokens": 300
+        "max_tokens": 600
     }
 
     try:
@@ -83,10 +84,17 @@ async def get_news_summary(content: str) -> str:
             response = await client.post(url, headers=headers, json=payload)
             response.raise_for_status()
             result = response.json()
-            return result["choices"][0]["message"]["content"].strip()
+            full_text = result["choices"][0]["message"]["content"].strip()
+
+            # 用分隔符拆出兩段文字（你也可以用其他格式規範）
+            if "理財建議：" in full_text:
+                summary, advisor = full_text.split("理財建議：", 1)
+                return summary.strip(), advisor.strip()
+            else:
+                return full_text.strip(), "（未提供理財建議段落）"
     except Exception as e:
-        logger.error(f"Mistral 摘要錯誤: {e}")
-        return "無法生成摘要，請稍後再試。"
+        logger.error(f"Mistral 分析錯誤: {e}")
+        return "無法生成摘要，請稍後再試。", "無法生成理財觀點，請稍後再試。"
 
 # ========= 定時推播功能 =========
 async def send_daily_news():
@@ -103,15 +111,16 @@ async def send_daily_news():
     except Exception:
         published = datetime.now()
 
-    summary = await get_news_summary(entry.summary)
-
+    summary, advisor = await generate_news_analysis(entry.summary)
+    
     try:
         await application.bot.send_message(
             chat_id=TEST_CHAT_ID,
             text=(f"📢 最新新聞：{title}\n\n"
                   f"🕒 發佈時間：{published:%Y-%m-%d %H:%M:%S}\n\n"
                   f"🔗 來源連結：{link}\n\n"
-                  f"📝 摘要：\n{summary}")
+                  f"📝 摘要：\n{summary}\n\n"
+                  f"💡 理專觀點：\n{advisor}")
         )
     except Exception as e:
         logger.error(f"推播失敗: {e}")
