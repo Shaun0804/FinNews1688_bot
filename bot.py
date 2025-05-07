@@ -70,24 +70,24 @@ async def generate_news_analysis(content: str) -> tuple[str, str]:
         "Authorization": f"Bearer {MISTRAL_API_KEY}",
         "Content-Type": "application/json"
     }
-    "messages": [
-    {
-        "role": "system",
-        "content": (
-            "你是一位財經新聞摘要助手，請用以下格式回答：\n"
-            "【摘要】新聞重點，不超過 300 字。\n"
-            "【理財建議】以理專角度評論此新聞對客戶的啟示與建議。\n"
-            "請務必用這兩個段落清楚分開。"
-        )
-    },
-    {
-        "role": "user",
-        "content": f"請將以下新聞內容摘要，並加入理財專員的看法建議：\n\n{content}"
-    }
-],
+
     payload = {
         "model": "mistral-small",
-        "messages": messages,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "你是一位財經新聞摘要助手，請用以下格式回答：\n"
+                    "【摘要】新聞重點，不超過 300 字。\n"
+                    "【理財建議】以理專角度評論此新聞對客戶的啟示與建議。\n"
+                    "請務必用這兩個段落清楚分開。"
+                )
+            },
+            {
+                "role": "user",
+                "content": f"請將以下新聞內容摘要，並加入理財專員的看法建議：\n\n{content}"
+            }
+        ],
         "temperature": 0.7,
         "max_tokens": 600
     }
@@ -100,13 +100,6 @@ async def generate_news_analysis(content: str) -> tuple[str, str]:
             full_text = result["choices"][0]["message"]["content"].strip()
             summary, advisor = parse_summary_and_advice(full_text)
             return summary, advisor
-
-            # 用分隔符拆出兩段文字（你也可以用其他格式規範）
-            if "理財建議：" in full_text:
-                summary, advisor = full_text.split("理財建議：", 1)
-                return summary.strip(), advisor.strip()
-            else:
-                return full_text.strip(), "（未提供理財建議段落）"
     except Exception as e:
         logger.error(f"Mistral 分析錯誤: {e}")
         return "無法生成摘要，請稍後再試。", "無法生成理財觀點，請稍後再試。"
