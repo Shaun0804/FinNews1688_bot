@@ -2,7 +2,7 @@ name: send-news
 
 on:
   schedule:
-    - cron: '0 1 * * *'  # 台灣時間上午 9 點（UTC+8）
+    - cron: '0 1 * * *'  # 每天台灣早上 9 點
   workflow_dispatch:
 
 jobs:
@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repo
+    - name: Checkout code
       uses: actions/checkout@v3
 
     - name: Set up Python
@@ -20,7 +20,7 @@ jobs:
 
     - name: Install dependencies
       run: |
-        pip install feedparser python-telegram-bot
+        pip install requests beautifulsoup4 python-telegram-bot
 
     - name: Run script
       run: python send_news.py
