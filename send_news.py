@@ -19,7 +19,7 @@ def get_top_news():
     res.encoding = 'utf-8'
     soup = BeautifulSoup(res.text, 'html.parser')
 
-    # 修正 selector：使用正確的區塊抓取新聞
+    # 使用正確的選擇器抓取新聞
     news_items = soup.select('div#ranking_body li')[:5]
     news_list = []
 
