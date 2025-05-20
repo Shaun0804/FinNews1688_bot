@@ -6,8 +6,8 @@ from datetime import datetime
 import os
 
 # 從 GitHub Actions Secrets 讀取
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+TOKEN = os.getenv("7915485999:AAHSYzBi1-Hh8PRvRRhbmnuafsey8BdNS8o", "")
+CHAT_ID = os.getenv("8079438887", "")
 
 bot = telegram.Bot(token=TOKEN)
 
