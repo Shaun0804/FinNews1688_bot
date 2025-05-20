@@ -1,18 +1,18 @@
 import os
 import requests
 from bs4 import BeautifulSoup
-import telegram
 from datetime import datetime
+import asyncio
+from telegram import Bot
 
 # 從 GitHub Secrets 讀取
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# 檢查 token 是否正確
 if not TOKEN or not CHAT_ID:
-    raise ValueError("TOKEN 或 CHAT_ID 為空，請確認 GitHub Secrets 是否正確設定。")
+    raise ValueError("❌ TOKEN 或 CHAT_ID 為空，請確認 GitHub Secrets 是否正確設定。")
 
-bot = telegram.Bot(token=TOKEN)
+bot = Bot(token=TOKEN)
 
 def get_top_news():
     url = 'https://money.udn.com/rank/pv/1001/0/'
@@ -35,14 +35,18 @@ def get_top_news():
 
     return news_list
 
-def send_daily_news():
+async def send_daily_news():
     today = datetime.now().strftime('%Y/%m/%d')
     header = f"<b>【{today} 經濟日報熱門新聞 Top 5】</b>"
-    bot.send_message(chat_id=CHAT_ID, text=header, parse_mode="HTML")
+
+    print("📤 Sending header...")
+    await bot.send_message(chat_id=CHAT_ID, text=header, parse_mode="HTML")
 
     news_list = get_top_news()
     for news in news_list:
-        bot.send_message(chat_id=CHAT_ID, text=news, parse_mode="HTML")
+        print(f"📤 Sending news: {news[:20]}...")
+        await bot.send_message(chat_id=CHAT_ID, text=news, parse_mode="HTML")
 
 if __name__ == '__main__':
-    send_daily_news()
+    print("✅ 開始執行")
+    asyncio.run(send_daily_news())
