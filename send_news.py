@@ -2,13 +2,11 @@ import requests
 from bs4 import BeautifulSoup
 import telegram
 from datetime import datetime
-
 import os
 
-# 從 GitHub Actions Secrets 讀取
+# === Telegram 設定 ===
 TOKEN = '7915485999:AAHSYzBi1-Hh8PRvRRhbmnuafsey8BdNS8o'
 CHAT_ID = '8079438887'
-
 bot = telegram.Bot(token=TOKEN)
 
 # 抓取經濟日報排行榜前 5 則新聞
@@ -21,12 +19,13 @@ def get_top_news():
     res.encoding = 'utf-8'
     soup = BeautifulSoup(res.text, 'html.parser')
 
-    news_items = soup.select('.tab-content li')[:5]
+    # 修正 selector：使用正確的區塊抓取新聞
+    news_items = soup.select('div#ranking_body li')[:5]
     news_list = []
 
     for i, item in enumerate(news_items, start=1):
         a = item.find('a')
-        if a:
+        if a and a.text and a['href']:
             title = a.text.strip()
             link = f"https://money.udn.com{a['href']}"
             news_list.append(f"<b>{i}. {title}</b>\n{link}")
