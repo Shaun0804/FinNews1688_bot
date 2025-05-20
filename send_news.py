@@ -3,11 +3,12 @@ from bs4 import BeautifulSoup
 import telegram
 from datetime import datetime
 
-# === Telegram 設定 ===
-TOKEN = '7915485999:AAHSYzBi1-Hh8PRvRRhbmnuafsey8BdNS8o'
-CHAT_ID = '8079438887'
+import os
 
-# 初始化 Telegram Bot
+# 從 GitHub Actions Secrets 讀取
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+
 bot = telegram.Bot(token=TOKEN)
 
 # 抓取經濟日報排行榜前 5 則新聞
@@ -28,16 +29,19 @@ def get_top_news():
         if a:
             title = a.text.strip()
             link = f"https://money.udn.com{a['href']}"
-            news_list.append(f"{i}. {title}\n{link}")
+            news_list.append(f"<b>{i}. {title}</b>\n{link}")
 
-    return "\n\n".join(news_list)
+    return news_list
 
 # 傳送訊息
 def send_daily_news():
     today = datetime.now().strftime('%Y/%m/%d')
-    news_text = get_top_news()
-    message = f"【{today} 經濟日報熱門新聞 Top 5】\n\n{news_text}"
-    bot.send_message(chat_id=CHAT_ID, text=message)
+    header = f"<b>【{today} 經濟日報熱門新聞 Top 5】</b>"
+    bot.send_message(chat_id=CHAT_ID, text=header, parse_mode="HTML")
+
+    news_list = get_top_news()
+    for news in news_list:
+        bot.send_message(chat_id=CHAT_ID, text=news, parse_mode="HTML")
 
 # 主程式
 if __name__ == '__main__':
