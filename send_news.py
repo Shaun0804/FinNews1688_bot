@@ -1,6 +1,5 @@
 import os
-import requests
-from bs4 import BeautifulSoup
+import feedparser
 from datetime import datetime
 import asyncio
 from telegram import Bot
@@ -14,23 +13,16 @@ if not TOKEN or not CHAT_ID:
 
 bot = Bot(token=TOKEN)
 
-# 擷取經濟日報熱門新聞
-def get_top_news():
-    url = 'https://money.udn.com/rank/pv/1001/0/'
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    res = requests.get(url, headers=headers)
-    res.encoding = 'utf-8'
-    soup = BeautifulSoup(res.text, 'html.parser')
+# 擷取經濟日報熱門新聞（從 RSS）
+def get_top_news_from_rss():
+    rss_url = 'https://cdn.feedcontrol.net/10159/18186-p5aGyCG285DQq.xml'
+    feed = feedparser.parse(rss_url)
 
-    news_items = soup.select('.tab-content li')[:5]
     news_list = []
-
-    for i, item in enumerate(news_items, start=1):
-        a = item.find('a')
-        if a:
-            title = a.text.strip()
-            link = f"https://money.udn.com{a['href']}"
-            news_list.append(f"<b>{i}. {title}</b>\n{link}")
+    for i, entry in enumerate(feed.entries[:5], start=1):  # 取前五則
+        title = entry.title
+        link = entry.link
+        news_list.append(f"<b>{i}. {title}</b>\n{link}")
 
     return news_list
 
@@ -41,7 +33,7 @@ async def send_daily_news():
 
     await bot.send_message(chat_id=CHAT_ID, text=header, parse_mode="HTML")
 
-    news_list = get_top_news()
+    news_list = get_top_news_from_rss()
     for news in news_list:
         await bot.send_message(chat_id=CHAT_ID, text=news, parse_mode="HTML")
         await asyncio.sleep(1.5)  # 等一下，避免被限速
