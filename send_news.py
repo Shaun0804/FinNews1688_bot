@@ -1,7 +1,7 @@
 import os
 import feedparser
 from datetime import datetime
-import asyncio
+import time
 from telegram import Bot
 
 # 讀取 Telegram token 和 chat ID
@@ -19,25 +19,24 @@ def get_top_news_from_rss():
     feed = feedparser.parse(rss_url)
 
     news_list = []
-    for i, entry in enumerate(feed.entries[:5], start=1):  # 取前五則
+    for i, entry in enumerate(feed.entries[:5], start=1):
         title = entry.title
         link = entry.link
         news_list.append(f"<b>{i}. {title}</b>\n{link}")
-
     return news_list
 
 # 發送訊息
-async def send_daily_news():
+def send_daily_news():
     today = datetime.now().strftime('%Y/%m/%d')
     header = f"<b>【{today} 經濟日報熱門新聞 Top 5】</b>"
 
-    await bot.send_message(chat_id=CHAT_ID, text=header, parse_mode="HTML")
+    bot.send_message(chat_id=CHAT_ID, text=header, parse_mode="HTML")
 
     news_list = get_top_news_from_rss()
     for news in news_list:
-        await bot.send_message(chat_id=CHAT_ID, text=news, parse_mode="HTML")
-        await asyncio.sleep(1.5)  # 等一下，避免被限速
+        bot.send_message(chat_id=CHAT_ID, text=news, parse_mode="HTML")
+        time.sleep(1.5)  # 避免速率限制
 
-# 主程式執行
+# 主程式
 if __name__ == '__main__':
-    asyncio.run(send_daily_news())
+    send_daily_news()
