@@ -23,7 +23,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install requests beautifulsoup4 python-telegram-bot==20.6
+          pip install -r requirements.txt  # 從 requirements.txt 安裝
 
       - name: Run send_news.py
         run: python send_news.py
